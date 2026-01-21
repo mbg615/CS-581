@@ -120,6 +120,43 @@ int computeGeneration(int **a, int **b, int N) {
   return compareGenerations(a, b, N);
 }
 
+/* function to compute the next generation of the array using a flag to check for change */
+int computeGenerationFlagOptimize(int **a, int **b, int N) {
+  int flag = 0;
+  for(int i = 1; i < N + 1; i++) {
+    for(int j = 1; j < N + 1; j++) {
+      int aliveNeighbors = countAlive(a, i, j);
+
+      if(a[i][j]) {
+        if(aliveNeighbors <= 1) {b[i][j] = 0; flag = 1;}
+        else if(aliveNeighbors >= 4) {b[i][j] = 0; flag = 1;}
+        else b[i][j] = 1;
+      } else {
+        if(aliveNeighbors == 3){b[i][j] = 1; flag = 1;}
+        else b[i][j] = 0;
+      }
+    }
+  }
+
+  return !flag;
+}
+
+/* function to compute the next generation of the array using a ternary for the logic */
+int computeGenerationTernary(int **a, int **b, int N) {
+  for(int i = 1; i < N + 1; i++) {
+    for(int j = 1; j < N + 1; j++) {
+      int alive = a[i][j];
+      int n = countAlive(a, i, j);
+
+      int next = alive ? (n == 2 || n == 3) : (n == 3);
+
+      b[i][j] = next;
+    }
+  }
+
+  return compareGenerations(a, b, N);
+}
+
 /* function to run the full simulation on the array */
 int runSimulation(int **a, int **b, int N, int M) {
   int i;
