@@ -200,6 +200,7 @@ int main(int argc, char **argv) {
   }
 
   freearray(a);
+  freearray(b);
 
   endtime = gettime();
   printf("Time taken for size %d = %lf seconds\n", N, endtime-starttime);
