@@ -7,7 +7,7 @@
 *  This version of the program uses MPI for parallelization.                           *
 *                                                                                      *
 *  To Compile: mpicc -Wall -O3 -o hw3 hw3.c                                            *
-*  To run: mpirun -np <processes> ./hw3 <comm_sz> <iterations> <output> <optional_seed>   *
+*  To run: mpirun -np <processes> ./hw3 <size> <iterations> <output> <optional_seed>   *
 *                                                                                      *
 *  Author: Maddox Guthrie                                                              *
 *  Email: mbguthrie1@crimson.ua.edu                                                    *
