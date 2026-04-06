@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <cuda.h>
-#include <sys/time.h>
 #include <cuda_device_runtime_api.h>
 
 #define IDX(x,y,N) (((x) * (N)) + (y))
@@ -14,19 +14,10 @@
     } \
 }
 
-/* function to get wall clock time */
-double gettime(void) {
-  struct timeval tval;
-
-  gettimeofday(&tval, NULL);
-
-  return( (double)tval.tv_sec + (double)tval.tv_usec/1000000.0 );
-}
-
 /* function to allocate the 2-D array */
-int **allocarray(int N, int M) {
-    int *p  = (int *)malloc(N * M * sizeof(int));
-    int **a = (int **)malloc(N * sizeof(int *));
+uint8_t **allocarray(int N, int M) {
+    uint8_t *p  = (uint8_t *)malloc(N * M * sizeof(uint8_t));
+    uint8_t **a = (uint8_t **)malloc(N * sizeof(uint8_t *));
 
     if(!p || !a) {
         fprintf(stderr, "Error allocating memory\n");
@@ -39,7 +30,7 @@ int **allocarray(int N, int M) {
 }
 
 /* function to initialize the array */
-int **initarray(int **a, int N) {
+uint8_t **initarray(uint8_t **a, int N) {
   for (int i = 1; i < N - 1; i++)
     for (int j = 1; j < N - 1; j++)
       a[i][j] = (rand() % 2);
@@ -58,7 +49,7 @@ int **initarray(int **a, int N) {
 }
 
 /* function to zero initialize the array */
-int **zeroarray(int **a, int N) {
+uint8_t **zeroarray(uint8_t **a, int N) {
   for (int i = 0; i < N; i++)
     for (int j = 0; j < N; j++)
       a[i][j] = 0;
@@ -67,13 +58,13 @@ int **zeroarray(int **a, int N) {
 }
 
 /* function to delete the 2-D array */
-void freearray(int **a) {
+void freearray(uint8_t **a) {
   free(&a[0][0]);
   free(a);
 }
 
 /* function to print the array to a file */
-void fprintarray(int **a, int N, FILE *fp) {
+void fprintarray(uint8_t **a, int N, FILE *fp) {
   for (int i = 1; i < N - 1; i++) {
     for (int j = 1; j < N - 1; j++)
       fprintf(fp, "%d ", a[i][j]);
@@ -82,20 +73,20 @@ void fprintarray(int **a, int N, FILE *fp) {
 }
 
 /* device function to count the alive cells neighboring a_d[i][j] */
-__device__ int countAlive(int *d_a, int i, int j, int N) {
+__device__ int countAlive(const uint8_t *d_a, int i, int j, int N) {
   return d_a[IDX(i-1,j-1,N)] + d_a[IDX(i-1,j,N)] + d_a[IDX(i-1,j+1,N)] +
          d_a[IDX(i,j-1,N)]   +                   d_a[IDX(i,j+1,N)]   + 
          d_a[IDX(i+1,j-1,N)] + d_a[IDX(i+1,j,N)] + d_a[IDX(i+1,j+1,N)];
 }
 
 /* kernel to compute the next generation of the array */
-__global__ void computeGeneration(int *d_a, int *d_b, int N) {
+__global__ void computeGeneration(uint8_t const *d_a, uint8_t *d_b, int N) {
   int c = blockIdx.x * blockDim.x + threadIdx.x + 1;
   int r = blockIdx.y * blockDim.y + threadIdx.y + 1;
 
   if (r >= N-1 || c >= N-1) return;
 
-  int n = countAlive(d_a, r, c, N);
+  uint8_t n = countAlive(d_a, r, c, N);
 
   d_b[IDX(r,c,N)] = (n == 3) || (n == 2 && d_a[IDX(r,c,N)]);
 }
@@ -119,50 +110,64 @@ int main(int argc, char** argv) {
     srand(atoi(argv[4]));
   } else srand(time(NULL));
 
-  int **a = allocarray(N, N);
-  int **b = allocarray(N, N);
+  uint8_t **a = allocarray(N, N);
+  uint8_t **b = allocarray(N, N);
 
   a = initarray(a, N);
   b = zeroarray(b, N);
 
-  int *d_a, *d_b;
+  uint8_t *d_a, *d_b;
 
-  double starttime, endtime;
-  starttime = gettime();
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
 
-  CUDA_CHECK(cudaMalloc(&d_a, N * N * sizeof(int)));
-  CUDA_CHECK(cudaMalloc(&d_b, N * N * sizeof(int)));
+  cudaStream_t stream1, stream2;
+  cudaStreamCreate(&stream1);
+  cudaStreamCreate(&stream2);
 
-  CUDA_CHECK(cudaMemcpy(d_a, a[0], N*N*sizeof(int), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_b, b[0], N*N*sizeof(int), cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMallocAsync(&d_a, N * N * sizeof(uint8_t), stream1));
+  CUDA_CHECK(cudaMallocAsync(&d_b, N * N * sizeof(uint8_t), stream2));
+
+  CUDA_CHECK(cudaMemcpyAsync(d_a, a[0], N*N*sizeof(uint8_t), cudaMemcpyHostToDevice, stream1));
+  CUDA_CHECK(cudaMemcpyAsync(d_b, b[0], N*N*sizeof(uint8_t), cudaMemcpyHostToDevice, stream2));
   
   dim3 threads(16, 16);
   dim3 blocks((N-2 + threads.x - 1)/threads.x, (N-2 + threads.y - 1)/threads.y);
 
+  cudaStreamSynchronize(stream1);
+  cudaStreamSynchronize(stream2);
+
+  cudaEventRecord(start);
   for(int i = 0; i < M; i++) {
     computeGeneration<<<blocks, threads>>>(d_a, d_b, N);
     CUDA_CHECK(cudaGetLastError());
 
-    int *tmp = d_a;
+    uint8_t *tmp = d_a;
     d_a = d_b;
     d_b = tmp;
   }
+  cudaEventRecord(stop);
 
-  cudaDeviceSynchronize();
-  endtime = gettime();
-
-  cudaMemcpy(a[0], d_a, N*N*sizeof(int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(a[0], d_a, N*N*sizeof(uint8_t), cudaMemcpyDeviceToHost);
   fprintarray(a, N, fp);
+
+  cudaFreeAsync(d_a, stream1);
+  cudaFreeAsync(d_b, stream2);
 
   freearray(a);
   freearray(b);
 
-  cudaFree(d_a);
-  cudaFree(d_b);
+  cudaStreamDestroy(stream1);
+  cudaStreamDestroy(stream2);
 
-  float elapsed = endtime - starttime;
-  printf("Size: %s x %s | Generations: %s | Time: %.6f seconds\n", argv[1], argv[1], argv[2], elapsed);
-  
+  cudaEventSynchronize(stop);
+  float elapsed = 0;
+  cudaEventElapsedTime(&elapsed, start, stop);
+
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+
+  printf("Size: %s x %s | Generations: %s | Time: %.6f seconds\n", argv[1], argv[1], argv[2], elapsed / 1000.0);
   return 0;
 }
-
